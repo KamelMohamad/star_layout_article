@@ -1,5 +1,6 @@
 package com.example.star_layout_article
 
+import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -9,7 +10,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawStyle
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.ParentDataModifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import kotlin.math.PI
 import kotlin.math.cos
@@ -22,16 +25,15 @@ fun StarLayout(
     modifier: Modifier = Modifier,
     drawStyle: DrawStyle = Stroke(12f),
     color: Color = Color.Yellow,
-    content: @Composable () -> Unit
+    content: @Composable StarLayoutScope.() -> Unit
 ) {
     var starRadiusPx = with(LocalDensity.current) { radius.roundToPx() }
     var totalRadius = 0
     var maxChildDiameter = 0
     var count = 0
     Layout(
-        content = content,
+        content = { StarLayoutScope.content() },
         modifier = modifier
-//            .background(Color.Gray)
             .drawWithCache {
                 onDrawBehind {
                     //val path = StarShape.createStar(count, radius = starRadiusPx.toFloat())
@@ -48,7 +50,8 @@ fun StarLayout(
             }
     ) { measurables, constraints ->
         val placeables = measurables.map { it.measure(constraints) }
-        count = placeables.size
+        val itemDataList = measurables.map { it.parentData as? StarItemData }
+        count = itemDataList.filter { it == null || it.onArm }.size
         placeables.forEach {
             val h = it.height.toDouble()
             val w = it.width.toDouble()
@@ -59,13 +62,26 @@ fun StarLayout(
         layout(totalRadius * 2, totalRadius * 2) {
             val step = PI * 2 / count
             var angle = 0.0
-            placeables.forEach { placeable ->
+            placeables.forEachIndexed { index, placeable ->
+                val itemData = itemDataList.getOrNull(index)
+                val slideFactor = itemData?.slide ?: 1f
+                val customAngle = itemData?.customAngle ?: 0.0
+                val onEdge = itemData?.onArm ?: true
+                println("index is $index, slide data : $itemData")
+                val drawAngle = if (onEdge) angle else Math.toRadians(-customAngle)
+                placeable.place(
+                    totalRadius - placeable.width / 2 + (starRadiusPx * slideFactor * cos(drawAngle)).toInt(),
+                    totalRadius - placeable.height / 2 + (starRadiusPx * slideFactor * sin(drawAngle)).toInt(),
+                )
+                if (onEdge) angle += step
+            }
+/*            placeables.forEach { placeable ->
                 placeable.place(
                     totalRadius - placeable.width / 2 + (starRadiusPx * cos(angle)).toInt(),
                     totalRadius - placeable.height / 2 + (starRadiusPx * sin(angle)).toInt(),
                 )
                 angle += step
-            }
+            }*/
         }
     }
 }
@@ -89,3 +105,21 @@ private fun createStarPath(
     return path
 }
 
+interface StarLayoutScope {
+    fun Modifier.adjustPlace(slide: Float, onArm: Boolean = true, customAngle: Double = 0.0) =
+        this.then(
+            StarItemData(slide, onArm, customAngle)
+        )
+
+    companion object : StarLayoutScope
+}
+
+private data class StarItemData(
+    val slide: Float,
+    val onArm: Boolean = true,
+    val customAngle: Double = 0.0
+) :
+    ParentDataModifier {
+
+    override fun Density.modifyParentData(parentData: Any?) = this@StarItemData
+}
